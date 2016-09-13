@@ -1,0 +1,54 @@
+#!/bin/bash
+
+echo "   ____  __________     ____                      __                __         "
+echo "  / __ \/ ____/ __ \   / __ \____ _      ______  / /___  ____ _____/ /__  _____"
+echo " / / / / /   / /_/ /  / / / / __ \ | /| / / __ \/ / __ \/ __ \`/ __  / _ \/ ___/"
+echo "/ /_/ / /___/ _, _/  / /_/ / /_/ / |/ |/ / / / / / /_/ / /_/ / /_/ /  __/ /    "
+echo "\____/\____/_/ |_|  /_____/\____/|__/|__/_/ /_/_/\____/\__,_/\__,_/\___/_/     "
+echo "                                                                               "
+
+TMPFILE="/tmp/ocrlinks"
+OLD_IFS=$IFS
+
+# If only one parameter it is an
+if [ $# -eq 1 ]; then
+  start_i=$1
+  end_i=$1
+elif [ $# -eq 2 ]; then
+  start_i=$1
+  end_i=$2
+else
+  echo "Usage: ocrdownloader startnumber [endnumber]"
+  exit
+fi
+
+# If we interrupt, clean up our link file.
+trap '{ rm $TMPFILE; IFS=$OLD_IFS; exit 1; }' INT
+
+echo "Starting at: $start_i"
+echo "Ending at: $end_i"
+
+# Get our links
+for i in $(seq $start_i $end_i | xargs printf "%05d\n"); do
+  LINKS=$(curl --compressed --silent ocremix.org/remix/OCR$i | grep -E 'href=".*?/music/remixes/.*?"' | sed -r 's/.*?href="(.*?)".*/\1/g')
+
+  # Check address is CURLable and accepts ranges because one of the mirrors 403's us D:
+  links=""
+  for link in $LINKS; do
+    status=$(curl -sIL -w "%{http_code}" $link -o /dev/null)
+    range=$(curl -sIL $link | grep "Accept-Ranges" | wc -l)
+    if [[ $status -eq "200" ]]; then
+      if [[ $range -eq "1" ]]; then
+        links="$link\t$links"
+      fi
+    fi
+  done
+
+  echo -e $links >> $TMPFILE
+done
+
+# aria2c makes downloading from multiple mirrors supah easy.
+aria2c -c 'true' -i $TMPFILE
+
+rm $TMPFILE
+exit 0;
